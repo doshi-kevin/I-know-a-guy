@@ -87,6 +87,20 @@ export const COST_LABEL: Record<ContactType, string> = {
   priorart: "Typically $1.5k–$4k for a search and report.",
 };
 
+// Representative value of an engagement once it closes — what the
+// platform's 1% success fee is calculated against. Approximate midpoints
+// of the ranges above (sponsor/licensing use the value of what changes
+// hands, since there's no legal fee to anchor to).
+export const DEAL_VALUE: Record<ContactType, number> = {
+  immigration: 6000,
+  sponsor: 15000,
+  trademark: 4000,
+  licensing: 50000,
+  patent: 12000,
+  priorart: 3000,
+};
+export const COMMISSION_RATE = 0.01;
+
 export interface Attorney {
   id: string;
   kind: "attorney";

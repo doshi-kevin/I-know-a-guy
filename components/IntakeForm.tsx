@@ -25,18 +25,43 @@ export interface IntakeState {
   city: string;
 }
 
-export const DEFAULT_INTAKE: IntakeState = {
-  practice: "visa",
-  focus: "h1b",
-  budget: 2000,
-  urgency: "this week",
-  detail: "We're raising a $200,000 pre-seed round and our lead engineer needs sponsorship to keep working with us.",
-  companyName: "Vellum Learning",
-  contactName: "Priya Raman, CEO",
-  sector: "edtech",
-  stage: "seed",
-  city: "New York",
+// Each practice gets its own complete, self-consistent example — switching
+// the card swaps the whole scenario, not just the category, so the detail
+// text never ends up describing a different company's situation.
+const PRESETS: Record<Practice, Omit<IntakeState, "budget" | "urgency">> = {
+  visa: {
+    practice: "visa",
+    focus: "h1b",
+    detail: "Our lead engineer's OPT work authorization runs out in 60 days — we need an employer willing to sponsor his H-1B so he can stay on full-time.",
+    companyName: "Vellum Learning",
+    contactName: "Priya Raman, CEO",
+    sector: "edtech",
+    stage: "seed",
+    city: "New York",
+  },
+  ip: {
+    practice: "ip",
+    focus: "brand",
+    detail: "We're about to launch under a new brand name and want it trademarked before a competitor files first.",
+    companyName: "Meridian Health",
+    contactName: "Maya Lindgren, CEO",
+    sector: "healthtech",
+    stage: "seed",
+    city: "Boston",
+  },
+  patent: {
+    practice: "patent",
+    focus: "hardware",
+    detail: "We've built a novel robotics gripper mechanism and want to file a patent before we demo it publicly.",
+    companyName: "Tern Robotics",
+    contactName: "Ana Kowalski, CEO",
+    sector: "deeptech",
+    stage: "seed",
+    city: "Boston",
+  },
 };
+
+export const DEFAULT_INTAKE: IntakeState = { ...PRESETS.visa, budget: 2000, urgency: "this week" };
 
 const PRACTICE_ICON: Record<Practice, string> = { visa: "🛂", ip: "™️", patent: "📄" };
 const CITIES = ["New York", "Boston", "Washington DC"];
@@ -66,26 +91,20 @@ export default function IntakeForm({ onSubmit }: { onSubmit: (state: IntakeState
             <h2 className="font-serif-display text-4xl font-medium leading-tight text-[var(--ink)]">
               What do you need help with?
             </h2>
-            <div className="mt-7 grid grid-cols-3 gap-4">
-              {(Object.keys(PRACTICE_LABEL) as Practice[]).map((p) => (
-                <button
-                  key={p}
-                  onClick={() => {
-                    set("practice", p);
-                    set("focus", FOCUS_OPTIONS[p][0].value);
-                  }}
-                  data-testid={`practice-${p}`}
-                  className={`rounded-2xl border p-6 text-left transition-all ${
-                    state.practice === p
-                      ? "border-[var(--accent)] bg-[var(--accent-soft)] shadow-sm"
-                      : "border-[var(--line)] bg-[var(--paper-raised)] hover:border-[var(--accent)]/50 hover:shadow-sm"
-                  }`}
-                >
-                  <div className="text-4xl">{PRACTICE_ICON[p]}</div>
-                  <div className="mt-3 text-[18px] font-medium text-[var(--ink)]">{PRACTICE_LABEL[p]}</div>
-                  <div className="mt-1.5 text-[13.5px] leading-snug text-[var(--muted)]">{PRACTICE_BLURB[p]}</div>
-                </button>
-              ))}
+            <div className="mt-7 rounded-2xl border border-[var(--line)] bg-[var(--paper-raised)] p-5">
+              <select
+                value={state.practice}
+                onChange={(e) => setState((s) => ({ ...s, ...PRESETS[e.target.value as Practice] }))}
+                data-testid="practice-select"
+                className="input text-[17px] font-medium"
+              >
+                {(Object.keys(PRACTICE_LABEL) as Practice[]).map((p) => (
+                  <option key={p} value={p}>
+                    {PRACTICE_ICON[p]} {PRACTICE_LABEL[p]}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-2.5 text-[13.5px] leading-snug text-[var(--muted)]">{PRACTICE_BLURB[state.practice]}</p>
             </div>
 
             <div className="mt-7 grid grid-cols-2 gap-5">

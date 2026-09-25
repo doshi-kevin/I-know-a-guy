@@ -9,9 +9,11 @@ import ConsentModal from "@/components/ConsentModal";
 import IntakeForm, { IntakeState } from "@/components/IntakeForm";
 import YesTracking from "@/components/YesTracking";
 import NoTracking from "@/components/NoTracking";
+import FirmDashboard from "@/components/FirmDashboard";
 import { ALL_ATTORNEYS, ALL_CONTACTS, LINKS } from "@/lib/data";
 import { Need, RankResult, ScoredContact, rank } from "@/lib/engine";
-import { PRACTICE_LABEL } from "@/lib/types";
+import { COMMISSION_RATE, DEAL_VALUE, PRACTICE_LABEL } from "@/lib/types";
+import { LogEntry, SEED_LOG } from "@/lib/firmLog";
 
 type Phase = "intake" | "transition" | "searching" | "results" | "tracking-yes" | "tracking-no" | "done";
 type Outcome = "sent" | "helped" | "not-helped";
@@ -34,6 +36,9 @@ export default function Page() {
   const [creditNote, setCreditNote] = useState<string | null>(null);
   const [hoveredContact, setHoveredContact] = useState<string | null>(null);
   const [trackingContact, setTrackingContact] = useState<ScoredContact | null>(null);
+  const [view, setView] = useState<"client" | "firm">("client");
+  const [requestLog, setRequestLog] = useState<LogEntry[]>(SEED_LOG);
+  const [pendingLogId, setPendingLogId] = useState<string | null>(null);
 
   const goTo = (ids: string[]) => {
     setFocusIds(ids);
@@ -137,35 +142,94 @@ export default function Page() {
   }, []);
 
   const approveIntro = useCallback(() => {
-    if (!consentFor) return;
+    if (!consentFor || !need) return;
     setTrackingContact(consentFor);
     setOutcomes((o) => ({ ...o, [consentFor.contact.id]: "sent" }));
     setConsentFor(null);
+
+    // this is what lands in the firm's own queue the moment an attorney
+    // actually sends something — the client-side flow and the firm-side
+    // dashboard are two views onto the same event
+    const logId = `req-${Date.now()}`;
+    setPendingLogId(logId);
+    setRequestLog((log) => [
+      {
+        id: logId,
+        companyName: need.clientName,
+        practice: need.practice,
+        sector: need.sector,
+        attorneyId: consentFor.attorney?.id,
+        attorneyName: consentFor.attorney?.name,
+        contactId: consentFor.contact.id,
+        contactName: consentFor.contact.name,
+        status: "sent",
+        ts: Date.now(),
+      },
+      ...log,
+    ]);
+
     setTimeout(() => setPhase("tracking-yes"), 500);
-  }, [consentFor]);
+  }, [consentFor, need]);
 
   const finishYes = useCallback((satisfied: boolean) => {
     const s = trackingContact;
     if (!s) return;
     setOutcomes((o) => ({ ...o, [s.contact.id]: satisfied ? "helped" : "not-helped" }));
+
+    // credit (or the lack of it) lands on the attorney's own record — the
+    // same numbers the firm dashboard's leaderboard reads from. Looked up
+    // fresh from the shared roster rather than mutated through state.
+    const attorney = s.attorney ? ALL_ATTORNEYS.find((a) => a.id === s.attorney!.id) : undefined;
+    if (attorney) {
+      attorney.intros += 1;
+      if (satisfied) attorney.wins += 1;
+    }
+    setRequestLog((log) =>
+      log.map((e) =>
+        e.id === pendingLogId
+          ? {
+              ...e,
+              status: satisfied ? "won" : "lost",
+              dealValue: satisfied ? DEAL_VALUE[s.contact.type] : undefined,
+              commission: satisfied ? Math.round(DEAL_VALUE[s.contact.type] * COMMISSION_RATE) : undefined,
+            }
+          : e
+      )
+    );
+
     if (satisfied && s.attorney) {
+      const fee = Math.round(DEAL_VALUE[s.contact.type] * COMMISSION_RATE);
       setCreditNote(
-        `${s.contact.name.split(" ")[0]}'s record improves, and the credit for this introduction sits with ${s.attorney.name}. The recommender engine weighs this pairing higher next time.`
+        `${s.contact.name.split(" ")[0]}'s record improves, and the credit for this introduction sits with ${s.attorney.name}. Hollis & Crane's 1% fee on this engagement: ~$${fee}. The recommender engine weighs this pairing higher next time.`
       );
     } else {
       setCreditNote("Logged. The engine now weighs this pairing lower for similar requests — it learns from misses too.");
     }
     setPhase("done");
-  }, [trackingContact]);
+  }, [trackingContact, pendingLogId]);
 
   const finishNo = useCallback((outcome: "elsewhere-succeeded" | "elsewhere-failed", reason: string) => {
+    if (need) {
+      setRequestLog((log) => [
+        {
+          id: `req-${Date.now()}`,
+          companyName: need.clientName,
+          practice: need.practice,
+          sector: need.sector,
+          status: "declined",
+          reason,
+          ts: Date.now(),
+        },
+        ...log,
+      ]);
+    }
     if (outcome === "elsewhere-succeeded") {
       setCreditNote(`Gap logged for "${reason}" — the engine now prioritizes reaching out earlier next time this pattern shows up.`);
     } else {
       setCreditNote(`Reminder set for 30 days. The engine keeps this need open and will resurface a match automatically.`);
     }
     setPhase("done");
-  }, []);
+  }, [need]);
 
   const reset = () => {
     setPhase("intake");
@@ -185,7 +249,29 @@ export default function Page() {
           <h1 className="font-serif-display text-[19px] font-medium text-[var(--ink)]">I Know a Guy</h1>
           <span className="text-[12px] text-[var(--muted)]">Hollis &amp; Crane LLP</span>
         </div>
-        {phase !== "intake" && (
+
+        <div className="ml-4 flex rounded-full border border-[var(--line)] bg-[var(--paper-raised)] p-0.5 text-[12px]">
+          <button
+            onClick={() => setView("client")}
+            data-testid="view-client"
+            className={`rounded-full px-3 py-1 font-medium transition-colors ${
+              view === "client" ? "bg-[var(--ink)] text-[var(--paper)]" : "text-[var(--muted)] hover:text-[var(--ink)]"
+            }`}
+          >
+            Client
+          </button>
+          <button
+            onClick={() => setView("firm")}
+            data-testid="view-firm"
+            className={`rounded-full px-3 py-1 font-medium transition-colors ${
+              view === "firm" ? "bg-[var(--ink)] text-[var(--paper)]" : "text-[var(--muted)] hover:text-[var(--ink)]"
+            }`}
+          >
+            Firm
+          </button>
+        </div>
+
+        {view === "client" && phase !== "intake" && (
           <div className="ml-auto flex gap-5 text-right text-[11px] text-[var(--muted)]">
             <Stat label="Attorneys" value={ALL_ATTORNEYS.length} />
             <Stat label="Contacts" value={ALL_CONTACTS.length} />
@@ -194,7 +280,11 @@ export default function Page() {
         )}
       </header>
 
-      {phase === "intake" ? (
+      {view === "firm" ? (
+        <main className="flex-1 overflow-y-auto">
+          <FirmDashboard log={requestLog} />
+        </main>
+      ) : phase === "intake" ? (
         <main className="flex flex-1 items-center justify-center overflow-y-auto px-10 py-12">
           <IntakeForm onSubmit={runFlow} />
         </main>
@@ -223,24 +313,14 @@ export default function Page() {
 
               {phase === "searching" && need && (
                 <motion.div key="s" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-1 flex-col justify-center gap-6">
-                  <div>
-                    <p className="text-[12px] uppercase tracking-wider text-[var(--muted)]">Request</p>
-                    <p className="mt-1 text-[14px] text-[var(--ink-soft)]">
-                      {need.clientName} needs {PRACTICE_LABEL[need.practice].toLowerCase()} help, {need.urgency}.
-                    </p>
-                  </div>
+                  <RequestSummary need={need} />
                   <PipelineSteps activeIndex={stepIndex} />
                 </motion.div>
               )}
 
               {(phase === "results" || phase === "tracking-yes" || phase === "tracking-no" || phase === "done") && result && need && (
                 <motion.div key="r" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-4">
-                  <div>
-                    <p className="text-[12px] uppercase tracking-wider text-[var(--muted)]">Request</p>
-                    <p className="mt-1 text-[13.5px] text-[var(--ink-soft)]">
-                      {need.clientName} needs {PRACTICE_LABEL[need.practice].toLowerCase()} help, {need.urgency}.
-                    </p>
-                  </div>
+                  <RequestSummary need={need} />
 
                   <PipelineSteps activeIndex={4} />
 
@@ -324,6 +404,20 @@ function Stat({ label, value }: { label: string; value: number }) {
     <div>
       <div className="tabular font-serif-display text-[15px] text-[var(--ink)]">{value}</div>
       <div className="text-[9.5px] uppercase tracking-wide">{label}</div>
+    </div>
+  );
+}
+
+// Keeps what the client actually typed in front of them for the rest of the
+// flow — the engine works on this exact sentence, not just the category.
+function RequestSummary({ need }: { need: Need }) {
+  return (
+    <div>
+      <p className="text-[12px] uppercase tracking-wider text-[var(--muted)]">Request</p>
+      <p className="mt-1 text-[14px] italic leading-snug text-[var(--ink)]">&ldquo;{need.raw}&rdquo;</p>
+      <p className="mt-1.5 text-[12px] text-[var(--muted)]">
+        {need.clientName} · {PRACTICE_LABEL[need.practice]} · {need.urgency}
+      </p>
     </div>
   );
 }
